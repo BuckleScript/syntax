@@ -51,3 +51,17 @@ type user = {
   hairStyle: Hair.t,
   @attrAbove @attrSuperLongNaaaaaaaaaaaaaaameSooooooooLong @attrSuperLongNaaaaaaaaaaaaaaameSooooooooLong hairStyle: Hair.t
 }
+
+type punned = {
+  name,
+  @attr name2,
+  mutable name3
+  name4: @attrNotPunned name4
+  name5: name5<int>
+}
+
+// not punned, user wrote typexpr
+type t = {a: a, b: b}
+
+// punned, user only wrote key
+type t = {a, b}
