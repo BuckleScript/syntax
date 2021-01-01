@@ -460,6 +460,34 @@ let scanTemplateLiteralToken scanner =
   let endPos = position scanner in
   (startPos, endPos, token)
 
+let scanExponentationLikeOperator scanner =
+  (* we already scanned at least `**` *)
+  let startOff = scanner.offset - 2 in
+  while CharacterCodes.isCustomOperatorChar scanner.ch do
+    next scanner
+  done;
+  Token.ExponentiationLikeOperator (
+    Bytes.sub_string scanner.src startOff (scanner.offset - startOff)
+  )
+
+let scanAdditionLikeOperator ~offset scanner =
+  let startOff = scanner.offset - offset in
+  while CharacterCodes.isCustomOperatorChar scanner.ch do
+    next scanner
+  done;
+  Token.AdditionLikeOperator (
+    Bytes.sub_string scanner.src startOff (scanner.offset - startOff)
+  )
+
+let scanMultiplicationLikeOperator ~offset scanner =
+  let startOff = scanner.offset - offset in
+  while CharacterCodes.isCustomOperatorChar scanner.ch do
+    next scanner
+  done;
+  Token.MultiplicationLikeOperator (
+    Bytes.sub_string scanner.src startOff (scanner.offset - startOff)
+  )
+
 let rec scan scanner =
   skipWhitespace scanner;
   let startPos = position scanner in
@@ -587,30 +615,72 @@ let rec scan scanner =
         scanMultiLineComment scanner
       ) else if scanner.ch == CharacterCodes.dot then (
         next scanner;
-        Token.ForwardslashDot
+        if CharacterCodes.isCustomOperatorChar scanner.ch then (
+          next scanner;
+          scanMultiplicationLikeOperator ~offset:3 scanner
+        ) else (
+          Token.ForwardslashDot
+        )
+      ) else if not (inJsxMode scanner) && CharacterCodes.isCustomOperatorChar scanner.ch then (
+        next scanner;
+        scanMultiplicationLikeOperator ~offset:2 scanner
       ) else (
         Token.Forwardslash
       )
     else if ch == CharacterCodes.minus then
       if scanner.ch == CharacterCodes.dot then (
         next scanner;
-        Token.MinusDot
+        if CharacterCodes.isCustomOperatorChar scanner.ch then (
+          next scanner;
+          scanAdditionLikeOperator ~offset:3 scanner
+        ) else (
+          Token.MinusDot
+        )
       ) else if scanner.ch == CharacterCodes.greaterThan then (
         next scanner;
-        Token.MinusGreater;
+        if CharacterCodes.isCustomOperatorChar scanner.ch then (
+          next scanner;
+          scanAdditionLikeOperator ~offset:3 scanner
+        ) else (
+          Token.MinusGreater;
+        )
+      ) else if CharacterCodes.isCustomOperatorChar scanner.ch then (
+        next scanner;
+        scanAdditionLikeOperator ~offset:2 scanner
       ) else (
         Token.Minus
       )
     else if ch == CharacterCodes.plus then
       if scanner.ch == CharacterCodes.dot then (
         next scanner;
-        Token.PlusDot
+        if CharacterCodes.isCustomOperatorChar scanner.ch then (
+          next scanner;
+          scanAdditionLikeOperator ~offset:3 scanner
+        ) else (
+          Token.PlusDot
+        )
       ) else if scanner.ch == CharacterCodes.plus then (
         next scanner;
-        Token.PlusPlus
+        if CharacterCodes.isCustomOperatorChar scanner.ch then (
+          next scanner;
+          (* TODO: add tests to check lenght offset *)
+          scanAdditionLikeOperator ~offset:3 scanner
+        ) else (
+          Token.PlusPlus
+        )
       ) else if scanner.ch == CharacterCodes.equal then (
         next scanner;
-        Token.PlusEqual
+        if CharacterCodes.isCustomOperatorChar scanner.ch then (
+          next scanner;
+          scanAdditionLikeOperator ~offset:3 scanner
+        ) else (
+          Token.PlusEqual
+        )
+      ) else if CharacterCodes.isCustomOperatorChar scanner.ch
+          && not (inDiamondMode scanner)
+        then (
+        next scanner;
+        scanAdditionLikeOperator ~offset:2 scanner
       ) else (
         Token.Plus
       )
@@ -653,12 +723,20 @@ let rec scan scanner =
         Token.Hash
       )
     else if ch == CharacterCodes.asterisk then
-      if scanner.ch == CharacterCodes.asterisk then (
+      if scanner.ch == CharacterCodes.dot then (
         next scanner;
-        Token.Exponentiation;
-      ) else if scanner.ch == CharacterCodes.dot then (
+        if CharacterCodes.isCustomOperatorChar scanner.ch then (
+          next scanner;
+          scanMultiplicationLikeOperator ~offset:3 scanner
+        ) else (
+          Token.AsteriskDot
+        )
+      ) else if scanner.ch == CharacterCodes.asterisk then (
         next scanner;
-        Token.AsteriskDot
+        scanExponentationLikeOperator scanner
+      ) else if CharacterCodes.isCustomOperatorChar scanner.ch then (
+        next scanner;
+        scanMultiplicationLikeOperator ~offset:2 scanner
       ) else (
         Token.Asterisk
       )
@@ -676,7 +754,15 @@ let rec scan scanner =
   else if ch == CharacterCodes.percent then
     if scanner.ch == CharacterCodes.percent then (
       next scanner;
-      Token.PercentPercent
+      if CharacterCodes.isCustomOperatorChar scanner.ch then (
+        next scanner;
+        scanMultiplicationLikeOperator ~offset:3 scanner
+      ) else (
+        Token.PercentPercent
+      )
+    ) else if CharacterCodes.isCustomOperatorChar scanner.ch then (
+      next scanner;
+      scanMultiplicationLikeOperator ~offset:2 scanner
     ) else (
       Token.Percent
     )
@@ -735,3 +821,12 @@ let isBinaryOp src startCnum endCnum =
       c == CharacterCodes.eof
     in
     leftOk && rightOk
+
+(* is the operator beginning at the given character? *)
+let isLeftBound src startToken =
+  let len = Bytes.length src in
+  if startToken >= len then false
+  else
+    match Bytes.unsafe_get src (startToken + 1) with
+    | 'a' .. 'z' -> true
+    | _ -> false

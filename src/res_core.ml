@@ -277,6 +277,25 @@ let buildLongident words = match List.rev words with
   | [] -> assert false
   | hd::tl -> List.fold_left (fun p s -> Longident.Ldot (p, s)) (Lident hd) tl
 
+let makeOperatorName p token startPos endPos =
+  let stringifiedToken =
+    if token = Token.MinusGreater then "|."
+    else if token = Token.PlusPlus then "^"
+    else if token = Token.BangEqual then "<>"
+    else if token = Token.BangEqualEqual then "!="
+    else if token = Token.Equal then (
+      (* TODO: could have a totally different meaning like x->fooSet(y)*)
+      Parser.err ~startPos ~endPos p (
+        Diagnostics.message "Did you mean `==` here?"
+      );
+      "="
+    ) else if token = Token.EqualEqual then "="
+    else if token = Token.EqualEqualEqual then "=="
+    else Token.toString token
+  in
+  let loc = mkLoc startPos endPos in
+  Location.mkloc stringifiedToken loc
+
 let makeInfixOperator p token startPos endPos =
   let stringifiedToken =
     if token = Token.MinusGreater then "|."
@@ -878,12 +897,7 @@ let parseTemplateStringLiteral s =
 (* constant	::=	integer-literal   *)
  (* ∣	 float-literal   *)
  (* ∣	 string-literal   *)
-let parseConstant p =
-  let isNegative = match p.Parser.token with
-  | Token.Minus -> Parser.next p; true
-  | Plus -> Parser.next p; false
-  | _ -> false
-  in
+let parseConstant ~isNegative p =
   let constant = match p.Parser.token with
   | Int {i; suffix} ->
     let intTxt = if isNegative then "-" ^ i else i in
@@ -1059,7 +1073,7 @@ let parseRegion p ~grammar ~f =
    (* ∣	 [| pattern  { ; pattern }  [ ; ] |]   *)
    (* ∣	 char-literal ..  char-literal *)
    (*	∣	 exception pattern  *)
-let rec parsePattern ?(alias=true) ?(or_=true) p =
+let rec parsePattern ?(alias=true) ?(or_=true) ?(operator=false) p =
   let startPos = p.Parser.startPos in
   let attrs = parseAttributes p in
   let pat = match p.Parser.token with
@@ -1070,11 +1084,21 @@ let rec parsePattern ?(alias=true) ?(or_=true) p =
     Ast_helper.Pat.construct ~loc
       (Location.mkloc (Longident.Lident (Token.toString token)) loc) None
   | Int _ | String _ | Float _ | Character _ | Minus | Plus ->
-    let c = parseConstant p in
+    let isNegative = match p.Parser.token with
+    | Token.Minus -> Parser.next p; true
+    | Plus -> Parser.next p; false
+    | _ -> false
+    in
+    let c = parseConstant ~isNegative p in
      begin match p.token with
       | DotDot ->
         Parser.next p;
-        let c2 = parseConstant p in
+        let isNegative = match p.Parser.token with
+        | Token.Minus -> Parser.next p; true
+        | Plus -> Parser.next p; false
+        | _ -> false
+        in
+        let c2 = parseConstant ~isNegative p in
         Ast_helper.Pat.interval ~loc:(mkLoc startPos p.prevEndPos) c c2
       | _ ->
         Ast_helper.Pat.constant ~loc:(mkLoc startPos p.prevEndPos) c
@@ -1087,6 +1111,56 @@ let rec parsePattern ?(alias=true) ?(or_=true) p =
       let loc = mkLoc startPos p.prevEndPos in
       let lid = Location.mkloc (Longident.Lident "()") loc in
       Ast_helper.Pat.construct ~loc lid None
+    | Minus | Plus ->
+      let startPos = p.startPos in
+      let token = p.token in
+      Parser.next p;
+      begin match p.token with
+      | Rparen ->
+        let operatorValue = makeOperatorName p token startPos p.prevEndPos in
+        Parser.next p;
+        Ast_helper.Pat.var ~loc:operatorValue.loc operatorValue
+      | _ ->
+        let isNegative = match token with
+        | Minus -> true
+        | _ -> false
+        in
+        let c = parseConstant ~isNegative p in
+        let pat = Ast_helper.Pat.constant ~loc:(mkLoc startPos p.prevEndPos) c in
+        let fullPattern = match p.Parser.token with
+        | Colon ->
+          Parser.next p;
+          let typ = parseTypExpr p in
+          let loc = mkLoc pat.ppat_loc.loc_start typ.Parsetree.ptyp_loc.loc_end in
+          Ast_helper.Pat.constraint_ ~loc pat typ
+        | _ -> pat
+        in
+        Parser.expect Rparen p;
+        fullPattern
+      end
+    | Percent when Scanner.isLeftBound p.scanner.src p.startPos.pos_cnum ->
+      let extension = parseExtension p in
+      let loc = mkLoc startPos p.prevEndPos in
+      let pat = Ast_helper.Pat.extension ~loc ~attrs extension in
+      let fullPattern = match p.Parser.token with
+      | Colon ->
+        Parser.next p;
+        let typ = parseTypExpr p in
+        let loc = mkLoc pat.ppat_loc.loc_start typ.Parsetree.ptyp_loc.loc_end in
+        Ast_helper.Pat.constraint_ ~loc pat typ
+      | _ -> pat
+      in
+      Parser.expect Rparen p;
+      fullPattern
+    | token when Token.isCustomOperator token ->
+      if not operator then
+        Parser.err p
+          (Diagnostics.message "Custom operators can only be introduced in a let-binding");
+      let operatorValue = makeOperatorName p token startPos p.endPos in
+      Parser.next p;
+      let operator = Ast_helper.Pat.var ~loc:operatorValue.loc operatorValue in
+      Parser.expect Rparen p;
+      operator
     | _ ->
       let pat = parseConstrainedPattern p in
       begin match p.token with
@@ -1156,6 +1230,15 @@ let rec parsePattern ?(alias=true) ?(or_=true) p =
     let extension = parseExtension p in
     let loc = mkLoc startPos p.prevEndPos in
     Ast_helper.Pat.extension ~loc ~attrs extension
+  | token when Token.isCustomOperator token ->
+    if not operator then
+      Parser.err p
+        (Diagnostics.message "Custom operators can only be introduced in a let-binding");
+    let operatorValue = makeOperatorName p token startPos p.endPos in
+    Parser.next p;
+    let operator = Ast_helper.Pat.var ~loc:operatorValue.loc operatorValue in
+    Parser.expect Rparen p;
+    operator
   | token ->
     Parser.err p (Diagnostics.unexpected token p.breadcrumbs);
     begin match skipTokensAndMaybeRetry p ~isStartOfGrammar:Grammar.isAtomicPatternStart with
@@ -1794,7 +1877,7 @@ and parseAtomicExpr p =
       Ast_helper.Exp.construct ~loc
         (Location.mkloc (Longident.Lident (Token.toString token)) loc) None
     | Int _ | String _ | Float _ | Character _ ->
-      let c = parseConstant p in
+      let c = parseConstant ~isNegative:false p in
       let loc = mkLoc startPos p.prevEndPos in
       Ast_helper.Exp.constant ~loc c
     | Backtick ->
@@ -2094,7 +2177,7 @@ and parseBinaryExpr ?(context=OrdinaryExpr) ?a p prec =
        *
        * First case is unary, second is a binary operator.
        * See Scanner.isBinaryOp *)
-      | Minus | MinusDot | LessThan when not (
+      | Minus | MinusDot | LessThan | Percent | PercentPercent when not (
           Scanner.isBinaryOp p.scanner.src p.startPos.pos_cnum p.endPos.pos_cnum
         ) && p.startPos.pos_lnum > p.prevEndPos.pos_lnum -> -1
       | token -> Token.precedence token
@@ -2311,7 +2394,7 @@ and parseLetBindingBody ~startPos ~attrs p =
   Parser.leaveBreadcrumb p Grammar.LetBinding;
   let pat, exp =
     Parser.leaveBreadcrumb p Grammar.Pattern;
-    let pat = parsePattern p in
+    let pat = parsePattern ~operator:true p in
     Parser.eatBreadcrumb p;
     match p.Parser.token with
     | Colon ->
@@ -2475,6 +2558,12 @@ and parseJsxOpeningOrSelfClosingElement ~startPos p =
     Parser.expect GreaterThan p;
     let loc = mkLoc childrenStartPos childrenEndPos in
     makeListExpression loc [] None (* no children *)
+  | MultiplicationLikeOperator "/>" ->
+    let childrenStartPos = p.Parser.startPos in
+    Parser.next p;
+    let childrenEndPos = p.Parser.startPos in
+    let loc = mkLoc childrenStartPos childrenEndPos in
+    makeListExpression loc [] None (* no children *)
   | GreaterThan -> (* <foo a=b> bar </foo> *)
     let childrenStartPos = p.Parser.startPos in
     Scanner.setJsxMode p.scanner;
@@ -2541,6 +2630,7 @@ and parseJsxOpeningOrSelfClosingElement ~startPos p =
  *)
 and parseJsx p =
   Parser.leaveBreadcrumb p Grammar.Jsx;
+  Scanner.setJsxMode p.scanner;
   let startPos = p.Parser.startPos in
   Parser.expect LessThan p;
   let jsxExpr = match p.Parser.token with
@@ -2551,6 +2641,7 @@ and parseJsx p =
   | _ ->
     parseJsxName p
   in
+  Scanner.popMode p.scanner Jsx;
   Parser.eatBreadcrumb p;
   {jsxExpr with pexp_attributes = [jsxAttr]}
 
@@ -2594,6 +2685,7 @@ and parseJsxProp p =
     else begin
       match p.Parser.token with
       | Equal ->
+        Scanner.popMode p.scanner Jsx;
         Parser.next p;
         (* no punning *)
         let optional = Parser.optional p Question in
@@ -2604,6 +2696,7 @@ and parseJsxProp p =
         let label =
           if optional then Asttypes.Optional name else Asttypes.Labelled name
         in
+        Scanner.setJsxMode p.scanner;
         Some (label, attrExpr)
       | _ ->
         let attrExpr =
@@ -5032,8 +5125,28 @@ and parsePrimitives p =
 and parseExternalDef ~attrs ~startPos p =
   Parser.leaveBreadcrumb p Grammar.External;
   Parser.expect Token.External p;
-  let (name, loc) = parseLident p in
-  let name = Location.mkloc name loc in
+  let name = match p.token with
+  (* external (+): int => int = "js_add" *)
+  | Lparen ->
+    Parser.next p;
+    let operator = makeOperatorName p p.token p.startPos p.endPos in
+    Parser.next p;
+    Parser.expect Rparen p;
+    operator
+
+  (* handle error case where user forgot parens around operator (+)
+   * external + : int => int = "js_add" -> note `+:` would picked up as one operator… *)
+  | token when Token.isCustomOperator token ->
+    Parser.expect Lparen p;
+    let operator = makeOperatorName p p.token p.startPos p.endPos in
+    Parser.next p;
+    operator
+
+  (* external add: int => int = "js_add" *)
+  | _ ->
+    let (name, loc) = parseLident p in
+    Location.mkloc name loc
+  in
   Parser.expect ~grammar:(Grammar.TypeExpression) Colon p;
   let typExpr = parseTypExpr p in
   Parser.expect Equal p;

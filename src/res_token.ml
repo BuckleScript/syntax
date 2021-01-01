@@ -33,9 +33,12 @@ type t =
   | Exception
   | Backslash [@live]
   | Forwardslash | ForwardslashDot
-  | Asterisk | AsteriskDot | Exponentiation
+  | Asterisk | AsteriskDot
+  | MultiplicationLikeOperator of string
+  | ExponentiationLikeOperator of string
   | Minus | MinusDot
   | Plus | PlusDot | PlusPlus | PlusEqual
+  | AdditionLikeOperator of string
   | ColonGreaterThan
   | GreaterThan
   | LessThan
@@ -80,9 +83,9 @@ let precedence = function
   | Land -> 3
   | Equal | EqualEqual | EqualEqualEqual | LessThan | GreaterThan
   | BangEqual | BangEqualEqual | LessEqual | GreaterEqual | BarGreater -> 4
-  | Plus | PlusDot | Minus | MinusDot | PlusPlus -> 5
-  | Asterisk | AsteriskDot | Forwardslash | ForwardslashDot -> 6
-  | Exponentiation -> 7
+  | Plus | PlusDot | Minus | MinusDot | PlusPlus | AdditionLikeOperator _ -> 5
+  | Asterisk | AsteriskDot | Forwardslash | ForwardslashDot | Percent | PercentPercent | MultiplicationLikeOperator _ -> 6
+  | ExponentiationLikeOperator _ -> 7
   | MinusGreater -> 8
   | Dot -> 9
   | _ -> 0
@@ -123,7 +126,10 @@ let toString = function
   | GreaterThan -> ">"
   | LessThan -> "<"
   | LessThanSlash -> "</"
-  | Asterisk -> "*" | AsteriskDot -> "*." | Exponentiation -> "**"
+  | Asterisk -> "*" | AsteriskDot -> "*."
+  | ExponentiationLikeOperator operator
+  | MultiplicationLikeOperator operator
+  | AdditionLikeOperator operator -> operator
   | Assert -> "assert"
   | Lazy -> "lazy"
   | Tilde -> "tilde"
@@ -221,3 +227,13 @@ let isKeywordTxt str =
   | Not_found -> false
 
 let catch = Lident "catch"
+
+(* TODO: rename to isOperatorToken ? *)
+let isCustomOperator token =
+  match token with
+  | PlusDot | Plus | Minus | MinusDot | PlusPlus
+  | Asterisk | AsteriskDot | Forwardslash | ForwardslashDot | Percent | PercentPercent
+  | AdditionLikeOperator _
+  | ExponentiationLikeOperator _
+  | MultiplicationLikeOperator _ -> true
+  | _ -> false

@@ -318,6 +318,20 @@ let printListi ~getLoc ~nodes ~print ?(forceBreak=false) t =
     in
     Doc.breakableGroup ~forceBreak docs
 
+let printOperatorValue operator =
+  Doc.concat [
+    Doc.lparen;
+    Doc.text (
+      match operator with
+      | "^" -> "++"
+      | "=" -> "=="
+      | "<>" -> "!="
+      | "!=" -> "!=="
+      | op -> op
+    );
+    Doc.rparen;
+  ]
+
 let rec printLongidentAux accu = function
 | Longident.Lident s -> (Doc.text s) :: accu
 | Ldot(lid, s) -> printLongidentAux ((Doc.text s) :: accu) lid
@@ -1025,14 +1039,21 @@ and printValueDescription valueDescription cmtTbl =
   let attrs = printAttributes ~loc:valueDescription.pval_name.loc attrs cmtTbl in
   let header =
     if isExternal then "external " else (if hasGenType then "export " else "let ") in
+  let name =
+    let valueName = valueDescription.pval_name.txt in
+    let doc =
+      if ParsetreeViewer.isBinaryOperator valueName then
+        printOperatorValue valueName
+      else
+        printIdentLike valueName
+    in
+    printComments doc cmtTbl valueDescription.pval_name.loc
+  in
   Doc.group (
     Doc.concat [
       attrs;
       Doc.text header;
-      printComments
-        (printIdentLike valueDescription.pval_name.txt)
-        cmtTbl
-        valueDescription.pval_name.loc;
+      name;
       Doc.text ": ";
       printTypExpr valueDescription.pval_type cmtTbl;
       if isExternal then
@@ -2074,7 +2095,11 @@ and printExtension ~atModuleLvl (stringLoc, payload) cmtTbl =
 and printPattern (p : Parsetree.pattern) cmtTbl =
   let patternWithoutAttributes = match p.ppat_desc with
   | Ppat_any -> Doc.text "_"
-  | Ppat_var var -> printIdentLike var.txt
+  | Ppat_var var ->
+    if ParsetreeViewer.isBinaryOperator var.txt then
+      printOperatorValue var.txt
+    else
+      printIdentLike var.txt
   | Ppat_constant c -> printConstant c
   | Ppat_tuple patterns ->
     Doc.group(

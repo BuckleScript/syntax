@@ -1,5 +1,123 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`additionLikeOperator.res 1`] = `
+"let (+) = (a, b) => a + b
+external (+): (int, int) => int = \\"js_call\\"
+2 + 1
+let (+!!!) = (a, b) => a + b
+external (+!!!): (int, int) => int = \\"js_call\\"
+2 +!!! 1
+let (+$$) = (a, b) => a + b
+external (+$$): (int, int) => int = \\"js_call\\"
+2 +$$ 1
+let (+%%%%%) = (a, b) => a + b
+external (+%%%%%): (int, int) => int = \\"js_call\\"
+2 +%%%%% 1
+let (+&&&) = (a, b) => a + b
+external (+&&&): (int, int) => int = \\"js_call\\"
+2 +&&& 1
+let (+**) = (a, b) => a + b
+external (+**): (int, int) => int = \\"js_call\\"
+2 +** 1
+let (++++++) = (a, b) => a + b
+external (++++++): (int, int) => int = \\"js_call\\"
+2 ++++++ 1
+let (+----) = (a, b) => a + b
+external (+----): (int, int) => int = \\"js_call\\"
+2 +---- 1
+let (+....) = (a, b) => a + b
+external (+....): (int, int) => int = \\"js_call\\"
+2 +.... 1
+let (+////) = (a, b) => a + b
+external (+////): (int, int) => int = \\"js_call\\"
+2 +//// 1
+let (+:) = (a, b) => a + b
+external (+:): (int, int) => int = \\"js_call\\"
+2 +: 1
+let (+<) = (a, b) => a + b
+external (+<): (int, int) => int = \\"js_call\\"
+2 +< 1
+let (+====) = (a, b) => a + b
+external (+====): (int, int) => int = \\"js_call\\"
+2 +==== 1
+let (+>>) = (a, b) => a + b
+external (+>>): (int, int) => int = \\"js_call\\"
+2 +>> 1
+let (+???) = (a, b) => a + b
+external (+???): (int, int) => int = \\"js_call\\"
+2 +??? 1
+let (+@) = (a, b) => a + b
+external (+@): (int, int) => int = \\"js_call\\"
+2 +@ 1
+let (+^^^) = (a, b) => a + b
+external (+^^^): (int, int) => int = \\"js_call\\"
+2 +^^^ 1
+let (+|||) = (a, b) => a + b
+external (+|||): (int, int) => int = \\"js_call\\"
+2 +||| 1
+let (+~~) = (a, b) => a + b
+external (+~~): (int, int) => int = \\"js_call\\"
+2 +~~ 1
+let (-) = (a, b) => a + b
+external (-): (int, int) => int = \\"js_call\\"
+2 - 1
+let (-!!!) = (a, b) => a + b
+external (-!!!): (int, int) => int = \\"js_call\\"
+2 -!!! 1
+let (-$$$$) = (a, b) => a + b
+external (-$$$$): (int, int) => int = \\"js_call\\"
+2 -$$$$ 1
+let (-%) = (a, b) => a + b
+external (-%): (int, int) => int = \\"js_call\\"
+2 -% 1
+let (-&) = (a, b) => a + b
+external (-&): (int, int) => int = \\"js_call\\"
+2 -& 1
+let (-***) = (a, b) => a + b
+external (-***): (int, int) => int = \\"js_call\\"
+2 -*** 1
+let (-++++) = (a, b) => a + b
+external (-++++): (int, int) => int = \\"js_call\\"
+2 -++++ 1
+let (---) = (a, b) => a + b
+external (---): (int, int) => int = \\"js_call\\"
+2 --- 1
+let (-....) = (a, b) => a + b
+external (-....): (int, int) => int = \\"js_call\\"
+2 -.... 1
+let (-/) = (a, b) => a + b
+external (-/): (int, int) => int = \\"js_call\\"
+2 -/ 1
+let (-:::) = (a, b) => a + b
+external (-:::): (int, int) => int = \\"js_call\\"
+2 -::: 1
+let (-<<<) = (a, b) => a + b
+external (-<<<): (int, int) => int = \\"js_call\\"
+2 -<<< 1
+let (-=) = (a, b) => a + b
+external (-=): (int, int) => int = \\"js_call\\"
+2 -= 1
+let (->>>) = (a, b) => a + b
+external (->>>): (int, int) => int = \\"js_call\\"
+2 ->>> 1
+let (-???) = (a, b) => a + b
+external (-???): (int, int) => int = \\"js_call\\"
+2 -??? 1
+let (-@) = (a, b) => a + b
+external (-@): (int, int) => int = \\"js_call\\"
+2 -@ 1
+let (-^^^) = (a, b) => a + b
+external (-^^^): (int, int) => int = \\"js_call\\"
+2 -^^^ 1
+let (-||) = (a, b) => a + b
+external (-||): (int, int) => int = \\"js_call\\"
+2 -|| 1
+let (-~~~~) = (a, b) => a + b
+external (-~~~~): (int, int) => int = \\"js_call\\"
+2 -~~~~ 1
+"
+`;
+
 exports[`apply.js 1`] = `
 "console.log()
 Js.log(\\"arg1\\", \\"arg2\\")
@@ -1735,7 +1853,7 @@ exports[`exoticIdent.js 1`] = `
 "let x = \\\\\\"type\\"
 let x = Extension.Type.\\\\\\"type\\"
 
-let \\\\\\"+++\\" = (a, b) => a + b
+let (+++) = (a, b) => a + b
 
 \\\\\\"+++\\"(~a=\\\\\\"let\\", \\\\\\"module\\", ~\\\\\\"type\\")
 
@@ -1796,6 +1914,73 @@ lazy \\\\\\"let\\"
 let x = 1
 
 let x = <div \\\\\\"aria-foo\\"=\\\\\\"type\\"> \\\\\\"module\\" \\\\\\"let\\" </div>
+"
+`;
+
+exports[`exponentiationLikeOperators.res 1`] = `
+"let (**) = (a, b) => a + b
+external (**): (int, int) => int = \\"js_call\\"
+2 ** 1
+let (**!!!!) = (a, b) => a + b
+external (**!!!!): (int, int) => int = \\"js_call\\"
+2 **!!!! 1
+let (**$) = (a, b) => a + b
+external (**$): (int, int) => int = \\"js_call\\"
+2 **$ 1
+let (**%%%%) = (a, b) => a + b
+external (**%%%%): (int, int) => int = \\"js_call\\"
+2 **%%%% 1
+let (**&) = (a, b) => a + b
+external (**&): (int, int) => int = \\"js_call\\"
+2 **& 1
+let (****) = (a, b) => a + b
+external (****): (int, int) => int = \\"js_call\\"
+2 **** 1
+let (**+++++) = (a, b) => a + b
+external (**+++++): (int, int) => int = \\"js_call\\"
+2 **+++++ 1
+let (**-) = (a, b) => a + b
+external (**-): (int, int) => int = \\"js_call\\"
+2 **- 1
+let (**..) = (a, b) => a + b
+external (**..): (int, int) => int = \\"js_call\\"
+2 **.. 1
+let (**:) = (a, b) => a + b
+external (**:): (int, int) => int = \\"js_call\\"
+2 **: 1
+let (**<<<) = (a, b) => a + b
+external (**<<<): (int, int) => int = \\"js_call\\"
+2 **<<< 1
+let (**=====) = (a, b) => a + b
+external (**=====): (int, int) => int = \\"js_call\\"
+2 **===== 1
+let (**>) = (a, b) => a + b
+external (**>): (int, int) => int = \\"js_call\\"
+2 **> 1
+let (**?????) = (a, b) => a + b
+external (**?????): (int, int) => int = \\"js_call\\"
+2 **????? 1
+let (**@) = (a, b) => a + b
+external (**@): (int, int) => int = \\"js_call\\"
+2 **@ 1
+let (**^^^) = (a, b) => a + b
+external (**^^^): (int, int) => int = \\"js_call\\"
+2 **^^^ 1
+let (**||) = (a, b) => a + b
+external (**||): (int, int) => int = \\"js_call\\"
+2 **|| 1
+let (**~) = (a, b) => a + b
+external (**~): (int, int) => int = \\"js_call\\"
+2 **~ 1
+let (**/) = (a, b) => a + b
+external (**/): (int, int) => int = \\"js_call\\"
+2 **/ 1
+let (**//) = (a, b) => a + b
+external (**//): (int, int) => int = \\"js_call\\"
+2 **// 1
+let (**///) = (a, b) => a + b
+external (**///): (int, int) => int = \\"js_call\\"
+2 **/// 1
 "
 `;
 
@@ -3070,6 +3255,11 @@ let x = list{
   superLoooooooooooooooooooooooooooooongIiiiiiiiiideeeentifieeeeeeeeeeeeeeeeer,
   ...superLoooooooooooooooooooooooooooooongListHere,
 }
+"
+`;
+
+exports[`multiplicationLikeOperator.res 1`] = `
+"
 "
 `;
 
