@@ -365,7 +365,16 @@ let printIdentLike ?allowUident txt =
   | ExoticIdent -> Doc.concat [
       Doc.text "\\\"";
       Doc.text txt;
-      Doc.text"\""
+      Doc.doubleQuote;
+    ]
+  | NormalIdent -> Doc.text txt
+
+let printJsExportedIdentLike txt =
+  match classifyIdentContent txt with
+  | ExoticIdent -> Doc.concat [
+      Doc.doubleQuote;
+      Doc.text txt;
+      Doc.doubleQuote;
     ]
   | NormalIdent -> Doc.text txt
 
@@ -410,9 +419,9 @@ let printConstant c = match c with
     end
   | Pconst_string (txt, None) ->
     Doc.concat [
-      Doc.text "\"";
+      Doc.doubleQuote;
       printStringContents txt;
-      Doc.text "\"";
+      Doc.doubleQuote;
     ]
   | Pconst_string (txt, Some prefix) ->
     Doc.concat [
@@ -901,11 +910,26 @@ and printOpenDescription (openDescription : Parsetree.open_description) cmtTbl =
   ]
 
 and printIncludeDescription (includeDescription: Parsetree.include_description) cmtTbl =
-  Doc.concat [
-    printAttributes includeDescription.pincl_attributes cmtTbl;
-    Doc.text "include ";
-    printModType includeDescription.pincl_mod cmtTbl;
-  ]
+  let isJsFfiImport = List.exists (fun attr -> match attr with
+    | ({Location.txt = "ns.jsFfi"}, _) -> true
+    | _ -> false
+  ) includeDescription.pincl_attributes
+  in
+  if isJsFfiImport then
+    let attrs = List.filter (fun attr ->
+      match attr with
+      | ({Location.txt = "ns.jsFfi"}, _) -> false
+      | _ -> true
+    ) includeDescription.pincl_attributes
+    in
+    let imports = ParsetreeViewer.extractValueDescriptionFromModType includeDescription.pincl_mod in
+    printJsFfiImportDeclaration ~attrs ~imports cmtTbl
+  else
+    Doc.concat [
+      printAttributes includeDescription.pincl_attributes cmtTbl;
+      Doc.text "include ";
+      printModType includeDescription.pincl_mod cmtTbl;
+    ]
 
 and printIncludeDeclaration (includeDeclaration : Parsetree.include_declaration)  cmtTbl =
   let isJsFfiImport = List.exists (fun attr ->
@@ -915,7 +939,14 @@ and printIncludeDeclaration (includeDeclaration : Parsetree.include_declaration)
   ) includeDeclaration.pincl_attributes
   in
   if isJsFfiImport then
-    printJsFfiImportDeclaration includeDeclaration cmtTbl
+    let attrs = List.filter (fun attr ->
+      match attr with
+      | ({Location.txt = "ns.jsFfi"}, _) -> false
+      | _ -> true
+    ) includeDeclaration.pincl_attributes
+    in
+    let imports = ParsetreeViewer.extractValueDescriptionFromModExpr includeDeclaration.pincl_mod in
+    printJsFfiImportDeclaration ~attrs ~imports cmtTbl
   else
     Doc.concat [
       printAttributes includeDeclaration.pincl_attributes cmtTbl;
@@ -931,67 +962,83 @@ and printIncludeDeclaration (includeDeclaration : Parsetree.include_declaration)
 and printJsFfiImport (valueDescription: Parsetree.value_description) cmtTbl =
   let attrs = List.filter (fun attr ->
     match attr with
-    | ({Location.txt = "bs.val" | "genType.import" | "bs.scope" }, _) -> false
+    | ({Location.txt = "bs.module" | "module" }, _) -> false
     | _ -> true
   ) valueDescription.pval_attributes in
-  let (ident, alias) = match valueDescription.pval_prim with
-  | primitive::_ ->
-    if primitive <> valueDescription.pval_name.txt then
-      (
-        printIdentLike primitive,
+  match ParsetreeViewer.classifyJsModuleFlavour valueDescription with
+  | JsDefaultImport _ ->
+    Doc.concat [
+      printAttributes ~loc:valueDescription.pval_name.loc attrs cmtTbl;
+      printIdentLike valueDescription.pval_name.txt;
+      Doc.text ": ";
+      printTypExpr valueDescription.pval_type cmtTbl;
+    ]
+  | JsNamespacedImport _ ->
+    Doc.concat [
+      printAttributes ~loc:valueDescription.pval_name.loc attrs cmtTbl;
+      Doc.text "* as ";
+      printIdentLike valueDescription.pval_name.txt;
+      Doc.text ": ";
+      printTypExpr valueDescription.pval_type cmtTbl;
+    ]
+  | JsNamedImport _ ->
+    let (ident, alias) = match valueDescription.pval_prim with
+    | primitive::_ ->
+      if primitive <> "" && primitive <> valueDescription.pval_name.txt then
+        (
+          printJsExportedIdentLike primitive,
+          Doc.concat [
+            Doc.text " as ";
+            printIdentLike valueDescription.pval_name.txt;
+          ]
+        )
+      else
+        (* handle: @module("mat4") external create: unit => t = "" *)
+        (printIdentLike valueDescription.pval_name.txt, Doc.nil)
+    | _ ->
+      (printIdentLike valueDescription.pval_name.txt, Doc.nil)
+    in
+    Doc.concat [
+      printAttributes ~loc:valueDescription.pval_name.loc attrs cmtTbl;
+      ident;
+      alias;
+      Doc.text ": ";
+      printTypExpr valueDescription.pval_type cmtTbl;
+    ]
+
+and printJsImportClause vds cmtTbl =
+  let isNamedImport vd = match ParsetreeViewer.classifyJsModuleFlavour vd with
+  | JsNamedImport _ -> true
+  | _ -> false
+  in
+  match vds with
+  | (first::_ as imports) when isNamedImport first ->
+    (* import {x: int, y: int} from "math" *)
+    Doc.concat [
+      Doc.space;
+      Doc.lbrace;
+      Doc.indent (
         Doc.concat [
-          Doc.text " as ";
-          printIdentLike valueDescription.pval_name.txt;
+          Doc.softLine;
+          Doc.join ~sep:(Doc.concat [Doc.comma; Doc.line]) (
+            List.map (fun vd -> printJsFfiImport vd cmtTbl) imports
+          )
         ]
-      )
-    else
-      (printIdentLike primitive, Doc.nil)
-  | _ ->
-    (printIdentLike valueDescription.pval_name.txt, Doc.nil)
-  in
-  Doc.concat [
-    printAttributes ~loc:valueDescription.pval_name.loc attrs cmtTbl;
-    ident;
-    alias;
-    Doc.text ": ";
-    printTypExpr valueDescription.pval_type cmtTbl;
-  ]
-
-and printJsFfiImportScope (scope: ParsetreeViewer.jsImportScope) =
-  match scope with
-  | JsGlobalImport -> Doc.nil
-  | JsModuleImport modName ->
-    Doc.concat [
-      Doc.text " from ";
-      Doc.doubleQuote;
-      Doc.text modName;
-      Doc.doubleQuote;
+      );
+      Doc.trailingComma;
+      Doc.softLine;
+      Doc.rbrace;
+      Doc.space;
     ]
-  | JsScopedImport idents ->
+  | first::(snd::_ as imports) when isNamedImport snd ->
+    (* import defaultExport: int, {x: int, y: int} from "math" *)
     Doc.concat [
-      Doc.text " from ";
-      Doc.join ~sep:Doc.dot (List.map Doc.text idents)
-    ]
-
-and printJsFfiImportDeclaration (includeDeclaration: Parsetree.include_declaration) cmtTbl =
-  let attrs = List.filter (fun attr ->
-    match attr with
-    | ({Location.txt = "ns.jsFfi"}, _) -> false
-    | _ -> true
-  ) includeDeclaration.pincl_attributes
-  in
-  let imports = ParsetreeViewer.extractValueDescriptionFromModExpr includeDeclaration.pincl_mod in
-  let scope = match imports with
-  | vd::_ -> ParsetreeViewer.classifyJsImport vd
-  | [] -> ParsetreeViewer.JsGlobalImport
-  in
-  let scopeDoc = printJsFfiImportScope scope in
-  Doc.group (
-    Doc.concat [
-      printAttributes attrs cmtTbl;
-      Doc.text "import ";
-      Doc.group (
+      Doc.indent (
         Doc.concat [
+          Doc.line;
+          printJsFfiImport first cmtTbl;
+          Doc.comma;
+          Doc.line;
           Doc.lbrace;
           Doc.indent (
             Doc.concat [
@@ -1001,12 +1048,50 @@ and printJsFfiImportDeclaration (includeDeclaration: Parsetree.include_declarati
               )
             ]
           );
-          Doc.trailingComma;
           Doc.softLine;
           Doc.rbrace;
         ]
       );
-      scopeDoc;
+      Doc.line;
+    ]
+  | imports ->
+    (* import defaultExport: int from "math" *)
+    (* import * as moduleObject: 'a from "math" *)
+    (* import defaultExport: int, * as moduleObject: 'a from "math" *)
+    Doc.concat [
+      Doc.indent (
+        Doc.concat [
+           Doc.line;
+           Doc.join ~sep:(Doc.concat [Doc.comma; Doc.line]) (
+             List.map (fun vd -> printJsFfiImport vd cmtTbl) imports
+           )
+        ]
+     );
+     Doc.line;
+    ]
+
+and printJsFfiImportDeclaration ~attrs ~imports cmtTbl =
+  let fromClauseDoc = match imports with
+  | vd::_ ->
+    begin match ParsetreeViewer.classifyJsModuleFlavour vd with
+    | ParsetreeViewer.JsNamespacedImport moduleName
+    | JsDefaultImport moduleName
+    | JsNamedImport moduleName ->
+      Doc.concat [
+        Doc.text "from ";
+        Doc.doubleQuote;
+        Doc.text moduleName;
+        Doc.doubleQuote;
+      ]
+    end
+  | [] -> Doc.nil
+  in
+  Doc.group (
+    Doc.concat [
+      printAttributes attrs cmtTbl;
+      Doc.text "import";
+      printJsImportClause imports cmtTbl;
+      fromClauseDoc
     ]
   )
 
@@ -1021,10 +1106,13 @@ and printValueDescription valueDescription cmtTbl =
   let isExternal =
     match valueDescription.pval_prim with | [] -> false | _ -> true
   in
-  let (hasGenType, attrs) = ParsetreeViewer.splitGenTypeAttr valueDescription.pval_attributes in
+  if ParsetreeViewer.hasModuleExternalAttribute valueDescription.pval_attributes then
+    printJsFfiImportDeclaration ~attrs:[] ~imports:[valueDescription] cmtTbl
+  else
+  let attrs = valueDescription.pval_attributes in
   let attrs = printAttributes ~loc:valueDescription.pval_name.loc attrs cmtTbl in
   let header =
-    if isExternal then "external " else (if hasGenType then "export " else "let ") in
+    if isExternal then "external " else "let " in
   Doc.group (
     Doc.concat [
       attrs;
@@ -1044,9 +1132,9 @@ and printValueDescription valueDescription cmtTbl =
                 Doc.line;
                 Doc.join ~sep:Doc.line (
                   List.map(fun s -> Doc.concat [
-                    Doc.text "\"";
+                    Doc.doubleQuote;
                     Doc.text s;
-                    Doc.text "\"";
+                    Doc.doubleQuote;
                   ])
                   valueDescription.pval_prim
                 );
@@ -1098,16 +1186,13 @@ and printTypeDeclarations ~recFlag typeDeclarations cmtTbl =
  *  | Ptype_open
  *)
 and printTypeDeclaration ~name ~equalSign ~recFlag i (td: Parsetree.type_declaration) cmtTbl =
-  let (hasGenType, attrs) = ParsetreeViewer.splitGenTypeAttr td.ptype_attributes in
+  let attrs = td.ptype_attributes in
   let attrs = printAttributes ~loc:td.ptype_loc attrs cmtTbl in
   let prefix = if i > 0 then
-    Doc.concat [
-      Doc.text "and ";
-      if hasGenType then Doc.text "export " else Doc.nil
-    ]
+    Doc.text "and "
   else
     Doc.concat [
-      Doc.text (if hasGenType then "export type " else "type ");
+      Doc.text "type ";
       recFlag
     ]
   in
@@ -3597,7 +3682,7 @@ and printPexpApply expr cmtTbl =
           printComments (printLongident lident.txt) cmtTbl memberExpr.pexp_loc
         | _ -> printExpressionWithComments memberExpr cmtTbl
         in
-        Doc.concat [Doc.text "\""; memberDoc; Doc.text "\""]
+        Doc.concat [Doc.doubleQuote; memberDoc; Doc.doubleQuote]
       in
       Doc.group (Doc.concat [
         printAttributes expr.pexp_attributes cmtTbl;
@@ -4695,9 +4780,9 @@ and printBsObjectRow (lbl, expr) cmtTbl =
   let cmtLoc = {lbl.loc with loc_end = expr.pexp_loc.loc_end} in
   let lblDoc =
     let doc = Doc.concat [
-      Doc.text "\"";
+      Doc.doubleQuote;
       printLongident lbl.txt;
-      Doc.text "\"";
+      Doc.doubleQuote;
     ] in
     printComments doc cmtTbl lbl.loc
   in
@@ -4715,6 +4800,7 @@ and printBsObjectRow (lbl, expr) cmtTbl =
  *   type t = string` -> attr is on prev line, print the attributes
  *   with a line break between, we respect the users' original layout *)
 and printAttributes ?loc ?(inline=false) (attrs: Parsetree.attributes) cmtTbl =
+
   match ParsetreeViewer.filterParsingAttrs attrs with
   | [] -> Doc.nil
   | attrs ->
@@ -4722,7 +4808,7 @@ and printAttributes ?loc ?(inline=false) (attrs: Parsetree.attributes) cmtTbl =
     | None -> Doc.line
     | Some loc -> begin match List.rev attrs with
       | ({loc = firstLoc}, _)::_ when loc.loc_start.pos_lnum > firstLoc.loc_end.pos_lnum ->
-        Doc.hardLine;
+        Doc.hardLine
       | _ -> Doc.line
       end
     in

@@ -124,13 +124,17 @@ val isBracedExpr : Parsetree.expression -> bool
 val isSinglePipeExpr : Parsetree.expression -> bool
 
 val extractValueDescriptionFromModExpr: Parsetree.module_expr -> Parsetree.value_description list
+val extractValueDescriptionFromModType: Parsetree.module_type -> Parsetree.value_description list
 
-type jsImportScope =
- | JsGlobalImport (* nothing *)
- | JsModuleImport of string (* from "path" *)
- | JsScopedImport of string list (* window.location *)
+type jsModuleFlavour =
+  (* import ceo: string from "company" *)
+  | JsDefaultImport of string
+  (* import {delimiter: string} from "path" *)
+  | JsNamedImport of string
+  (* import * as leftPad: (string, int) => string from "leftPad" *)
+  | JsNamespacedImport of string
 
-val classifyJsImport: Parsetree.value_description -> jsImportScope
+val classifyJsModuleFlavour: Parsetree.value_description -> jsModuleFlavour
 
 (* (__x) => f(a, __x, c) -----> f(a, _, c)  *)
 val rewriteUnderscoreApply: Parsetree.expression -> Parsetree.expression
@@ -139,3 +143,5 @@ val rewriteUnderscoreApply: Parsetree.expression -> Parsetree.expression
 val isUnderscoreApplySugar: Parsetree.expression -> bool
 
 val hasIfLetAttribute: Parsetree.attributes -> bool
+
+val hasModuleExternalAttribute: Parsetree.attributes -> bool
