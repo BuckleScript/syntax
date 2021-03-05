@@ -13,13 +13,13 @@ type lineStyle =
 type t =
   | Nil
   | Text of string
-  | Concat of t list
+  | Concat of t array
   | Indent of t
   | IfBreaks of {yes: t; no: t}
   | LineSuffix of t
   | LineBreak of lineStyle
   | Group of {shouldBreak: bool; doc: t}
-  | CustomLayout of t list
+  | CustomLayout of t array
   | BreakParent
 
 let nil = Nil
@@ -82,12 +82,13 @@ let propagateForcedBreaks doc =
     let shouldBreak = forceBreak || childForcesBreak in
     (shouldBreak, Group {shouldBreak; doc = newChildren})
   | Concat children ->
-    let (forceBreak, newChildren) = List.fold_left (fun (forceBreak, newChildren) child ->
+    let forceBreak = ref false in
+    let newChildren = children |> Array.map (fun child ->
       let (childForcesBreak, newChild) = walk child in
-      (forceBreak || childForcesBreak, newChild::newChildren)
-    ) (false, []) children
-    in
-    (forceBreak, Concat (List.rev newChildren))
+      if childForcesBreak then forceBreak := true;
+      newChild
+    ) in
+    (forceBreak.contents, Concat newChildren)
   | CustomLayout children ->
     (* When using CustomLayout, we don't want to propagate forced breaks
      * from the children up. By definition it picks the first layout that fits
@@ -106,19 +107,24 @@ let propagateForcedBreaks doc =
 (* See documentation in interface file *)
 let rec willBreak doc = match doc with
   | LineBreak (Hard | Literal) | BreakParent | Group {shouldBreak = true} -> true
-  | Group {doc} | Indent doc | CustomLayout (doc::_) -> willBreak doc
-  | Concat docs -> List.exists willBreak docs
+  | Group {doc} | Indent doc -> willBreak doc
+  | Concat docs -> Array.exists willBreak docs
   | IfBreaks {yes; no} -> willBreak yes || willBreak no
+  | CustomLayout [||] -> false
+  | CustomLayout docs -> willBreak (Array.unsafe_get docs 0)
   | _ -> false
 
 let join ~sep docs =
-  let rec loop acc sep docs =
-    match docs with
-    | [] -> List.rev acc
-    | [x] -> List.rev (x::acc)
-    | x::xs -> loop (sep::x::acc) sep xs
-  in
-  Concat(loop [] sep docs)
+  match docs with
+  | [||] -> Nil
+  | docs ->
+    (* We're gonna intersperse nodes with sep. *)
+    let result = (Array.init [@doesNotRaise]) (Array.length docs * 2 - 1) (fun i ->
+      if i mod 2 == 0 then
+        Array.unsafe_get docs (i / 2)
+      else sep
+    ) [@doesNotRaise] in
+    Concat result
 
 let rec fits w doc = match doc with
   | _ when w < 0 -> false
@@ -141,16 +147,17 @@ let rec fits w doc = match doc with
       else
         fits w ((ind, mode, flatDoc)::rest)
   | (ind, mode, Concat docs)::rest ->
-    let ops = List.map (fun doc -> (ind, mode, doc)) docs in
-    fits w (List.append ops rest)
+    let ops = Array.map (fun doc -> (ind, mode, doc)) docs in
+    fits w (Res_array.appendToList ops rest)
   (* | (_ind, _mode, Cursor)::rest -> fits w rest *)
   | (_ind, _mode, LineSuffix _)::rest -> fits w rest
   | (_ind, _mode, BreakParent)::rest -> fits w rest
-  | (ind, mode, CustomLayout (hd::_))::rest ->
-    (* TODO: if we have nested custom layouts, what we should do here? *)
-    fits w ((ind, mode, hd)::rest)
-  | (_ind, _mode, CustomLayout _)::rest ->
+  | (_ind, _mode, CustomLayout [||])::rest ->
     fits w rest
+  | (ind, mode, CustomLayout docs)::rest ->
+    (* TODO: if we have nested custom layouts, what we should do here? *)
+    let hd = Array.unsafe_get docs 0 in
+    fits w ((ind, mode, hd)::rest)
 
 let toString ~width doc =
   let doc = propagateForcedBreaks doc in
@@ -168,8 +175,8 @@ let toString ~width doc =
       | LineSuffix doc ->
         process ~pos ((ind, mode, doc)::lineSuffices) rest
       | Concat docs ->
-        let ops = List.map (fun doc -> (ind, mode, doc)) docs in
-        process ~pos lineSuffices (List.append ops rest)
+        let ops = Array.map (fun doc -> (ind, mode, doc)) docs in
+        process ~pos lineSuffices (Res_array.appendToList ops rest)
       | Indent doc ->
         process ~pos lineSuffices ((ind + 2, mode, doc)::rest)
       | IfBreaks {yes = breakDoc; no = flatDoc} ->
@@ -207,16 +214,15 @@ let toString ~width doc =
         else
           process ~pos lineSuffices ((ind, Flat, doc)::rest)
       | CustomLayout docs ->
-        let rec findGroupThatFits groups = match groups with
-        | [] -> Nil
-        | [lastGroup] -> lastGroup
-        | doc::docs ->
-          if (fits (width - pos) ((ind, Flat, doc)::rest)) then
-            doc
+        let rec findGroupThatFits groups i =
+          if i = Array.length groups then Nil
+          else if i = Array.length groups - 1 then Array.unsafe_get groups i
           else
-            findGroupThatFits docs
+            let doc = Array.unsafe_get groups i in
+            if (fits (width - pos) ((ind, Flat, doc)::rest)) then doc
+            else findGroupThatFits groups (i + 1)
         in
-        let doc = findGroupThatFits docs in
+        let doc = findGroupThatFits docs 0 in
         process ~pos lineSuffices ((ind, Flat, doc)::rest)
       end
     | [] ->
@@ -236,67 +242,65 @@ let debug t =
     | BreakParent -> text "breakparent"
     | Text txt -> text ("text(\"" ^ txt ^ "\")")
     | LineSuffix doc -> group(
-        concat [
+        concat [|
           text "linesuffix(";
           indent (
-            concat [line; toDoc doc]
+            concat [|line; toDoc doc|]
           );
           line;
           text ")"
-        ]
+        |]
       )
-    | Concat [] -> text "concat()"
+    | Concat [||] -> text "concat()"
     | Concat docs -> group(
-        concat [
+        concat [|
           text "concat(";
           indent (
-            concat [
+            concat [|
               line;
-              join ~sep:(concat [text ","; line])
-                (List.map toDoc docs) ;
-            ]
+              join ~sep:(concat [|text ","; line|]) (Array.map toDoc docs);
+            |]
           );
           line;
           text ")"
-        ]
+        |]
       )
     | CustomLayout docs -> group(
-        concat [
+        concat [|
           text "customLayout(";
           indent (
-            concat [
+            concat [|
               line;
-              join ~sep:(concat [text ","; line])
-                (List.map toDoc docs) ;
-            ]
+              join ~sep:(concat [|text ","; line|]) (Array.map toDoc docs);
+            |]
           );
           line;
           text ")"
-        ]
+        |]
       )
     | Indent doc ->
-        concat [
+        concat [|
           text "indent(";
           softLine;
           toDoc doc;
           softLine;
           text ")";
-        ]
+        |]
     | IfBreaks {yes = trueDoc; no = falseDoc} ->
       group(
-        concat [
+        concat [|
           text "ifBreaks(";
           indent (
-            concat [
+            concat [|
               line;
               toDoc trueDoc;
-              concat [text ",";  line];
+              concat [|text ",";  line|];
               toDoc falseDoc;
-            ]
+            |]
           );
           line;
           text ")"
-        ]
+        |]
       )
     | LineBreak break ->
       let breakTxt = match break with
@@ -308,19 +312,19 @@ let debug t =
       text ("LineBreak(" ^ breakTxt ^ ")")
     | Group {shouldBreak; doc} ->
       group(
-        concat [
+        concat [|
           text "Group(";
           indent (
-            concat [
+            concat [|
               line;
               text ("{shouldBreak: " ^ (string_of_bool shouldBreak) ^ "}");
-              concat [text ",";  line];
+              concat [|text ",";  line|];
               toDoc doc;
-            ]
+            |]
           );
           line;
           text ")"
-        ]
+        |]
       )
   in
   let doc = toDoc t in

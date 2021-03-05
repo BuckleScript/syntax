@@ -6,7 +6,7 @@ val hardLine: t
 val softLine: t
 val literalLine: t
 val text: string -> t
-val concat: t list -> t
+val concat: t array -> t
 val indent: t -> t
 val ifBreaks: t -> t -> t
 val lineSuffix: t -> t
@@ -15,9 +15,9 @@ val breakableGroup: forceBreak : bool -> t -> t
 (* `customLayout docs` will pick the layout that fits from `docs`.
  * This is a very expensive computation as every layout from the list
  * will be checked until one fits. *)
-val customLayout: t list -> t
+val customLayout: t array -> t
 val breakParent: t
-val join: sep: t -> t list -> t
+val join: sep: t -> t array -> t
 
 val space: t
 val comma: t
